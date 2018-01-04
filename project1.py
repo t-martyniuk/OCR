@@ -1,77 +1,85 @@
 import cv2
 import numpy as np
 import math
+import glob
 
-def overlap(a,b,c,d):
+
+def overlap(a, b, c, d):
     if ((a - c) * (d - b) > 0):
         return True
-    elif ((d - a) * (b - c) > 0) and min(abs(a-d),abs(b-c)) > 0.25* max(abs(b-a), abs(d-c)):
+    elif ((d - a) * (b - c) > 0) and min(abs(a - d), abs(b - c)) > 0.25 * max(abs(b - a), abs(d - c)):
         return True
     else:
         return False
 
+
 import os
 
-def noisy(noise_typ,image):
-   if noise_typ == "gauss":
-      row,col,ch= image.shape
-      mean = 0
-      var = 0.1
-      sigma = var**0.5
-      gauss = np.random.normal(mean,sigma,(row,col,ch))
-      gauss = gauss.reshape(row,col,ch)
-      noisy = image + 0.01 * gauss
-      return noisy
-   elif noise_typ == "poisson":
-      vals = len(np.unique(image))
-      vals = 2 ** np.ceil(np.log2(vals))
-      noisy = np.random.poisson(image * vals) / float(vals)
-      return noisy
-   elif noise_typ =="speckle":
-      row,col,ch = image.shape
-      gauss = np.random.randn(row,col,ch)
-      gauss = gauss.reshape(row,col,ch)
-      noisy = image + image * 0.01 * gauss
-      return noisy
 
-def detect_digits(indx):
+def noisy(image):
+    row, col, ch = image.shape
+    noise = np.random.rand(row, col, ch)
+    noise = noise.reshape(row, col, ch)
+    return image + image * noise
+
+def crop_minAreaRect(img, rect):
+
+    # rotate img
+    angle = rect[-1]
+    rows,cols = img.shape[0], img.shape[1]
+    M = cv2.getRotationMatrix2D((cols/2,rows/2),angle,1)
+    img_rot = cv2.warpAffine(img,M,(cols,rows))
+
+    # rotate bounding box
+    rect0 = (rect[0], rect[1], 0.0)
+    box = cv2.boxPoints(rect)
+    pts = np.int0(cv2.transform(np.array([box]), M))[0]
+    pts[pts < 0] = 0
+
+    # crop
+    img_crop = img_rot[pts[1][1]:pts[0][1],
+                       pts[1][0]:pts[2][0]]
+
+    return img_crop
+
+def detect_characters(indx):
+
     strip = strips[indx]
-    cv2.imshow("detected lines", strip)
+    cv2.imshow("detected line", strip)
     cv2.waitKey(0)
-    #samples = np.empty((0, 100))
+    # samples = np.empty((0, 100))
 
-    gray_strip = cv2.cvtColor(strip, cv2.COLOR_RGB2GRAY)
-    blur = cv2.GaussianBlur(gray_strip, (5,5), 0)
+    gray_strip = cv2.cvtColor(strip, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray_strip, (5, 5), 0)
     thresh = cv2.adaptiveThreshold(blur, 255, 1, 1, 3, 2)
+
+    cv2.imshow("after thresh", thresh)
+    cv2.waitKey(0)
+
 
     _, contours_strip, hierarchy_strip = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    #digits = []
-    #Introduce lists of left x1, right x2, top y1, bottom pixels y2 without drawing rectangles
+    # Introduce lists of left x1, right x2, top y1, bottom pixels y2 without drawing rectangles
     x1, x2, y1, y2 = ([] for i in range(4))
     for cnt in contours_strip:
         x, y, w, h = cv2.boundingRect(cnt)
         x1.append(x)
-        x2.append(x+w)
+        x2.append(x + w)
         y1.append(y)
-        y2.append(y+h)
-        # cv2.rectangle(strip, (x, y), (x + w, y + h), (0, 0, 255), 1)
-        # digits.append(gray_strip[y:y + h, x:x + w])
+        y2.append(y + h)
 
-    #Introduce lists for future rectangles
+
+    # Introduce lists for future rectangles
     xx, xw, yy, yh = ([] for i in range(4))
-    flags = [False]*len(x1)
-    current_flags = [False]*len(x1)
-    #Search for pairs of intersecting in width(!) contours
+    flags = [False] * len(x1)
+    current_flags = [False] * len(x1)
+    # Search for pairs of intersecting in width(!) contours
     for i in range(len(x1)):
         if not flags[i]:
             j = i + 1
             while (j < len(x1)):
                 if overlap(x1[i], x2[i], x1[j], x2[j]):
-                    # xx.append(min(x1[i],x1[j]))
-                    # xw.append(max(x2[i],x2[j]))
-                    # yy.append(min(y1[i], y1[j]))
-                    # yh.append(max(y2[i], y2[j]))
+
                     current_flags[i], current_flags[j], flags[i], flags[j] = (True for i in range(4))
                 j += 1
             if not flags[i]:
@@ -90,61 +98,91 @@ def detect_digits(indx):
                 yh.append(maxy)
             current_flags = [False] * len(x1)
 
-    #Draw the rectangles from those validated lists xx,xw,yy,yh
-    for i in range(len(xx)):
-        if (yh[i]-yy[i]>2):
-            roi = strip[yy[i]:yh[i], xx[i]:xw[i]]
+    # Draw the rectangles from those validated lists xx,xw,yy,yh
+    lenxx = len(xx)
+    black_valid = [None]*lenxx
+    for i in range(lenxx):
+        roi = gray_strip[yy[i]:yh[i], xx[i]:xw[i]]
+        _, roi = cv2.threshold(roi,127, maxval = 255, type=cv2.THRESH_BINARY)
+        whites = cv2.countNonZero(roi)
+        black_valid[i] = whites < 0.9 * (yh[i] - yy[i]) * (xw[i] - xx[i])
+        if black_valid[i]:
             roismall = cv2.resize(roi, (100, 100))
-            cv2.imshow('character squared',roismall)
+            cv2.imshow('character squared', roismall)
             cv2.waitKey(0)
+    xx = [xx[i] for i in range(lenxx) if black_valid[i]]
+    xw = [xw[i] for i in range(lenxx) if black_valid[i]]
+    yy = [yy[i] for i in range(lenxx) if black_valid[i]]
+    yh = [yh[i] for i in range(lenxx) if black_valid[i]]
+
     for i in range(len(xx)):
-        if (yh[i]-yy[i]>2):
-            cv2.rectangle(strip, (xx[i], yy[i]), (xw[i], yh[i]), (0, 0, 255), 1)
+        cv2.rectangle(strip, (xx[i], yy[i]), (xw[i], yh[i]), (0, 0, 255), 1)
 
-
-
-            #samples = np.append(samples, sample, 0)
-            #digits.append(gray_strip[yy[i]:yh[i], xx[i]:xw[i]])
+            # samples = np.append(samples, sample, 0)
+            # digits.append(gray_strip[yy[i]:yh[i], xx[i]:xw[i]])
     height, width = strip.shape[:2]
     strip_large = cv2.resize(strip, (2 * width, 2 * height))
     cv2.imshow('detected characters', strip_large)
     cv2.waitKey(0)
 
-    # digit = digits[-6]
-    # height, width = digit.shape[:2]
-    # digit_large = cv2.resize(digit, (10 * width, 10 * height))
-    # cv2.imshow('detected digits', digit_large)
-    # cv2.waitKey(0)
 
 
 def detect_lines(src):
-    src1 = np.uint8(src)
-    cv2.imshow('before canny', src1)
+    cv2.imshow('start', src)
     cv2.waitKey(0)
-    im = cv2.Canny(src1, 50, 200, L2gradient=True)
-    im1 = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+    #Convert to gray
+    src_grey = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+    #blur = cv2.GaussianBlur(src_grey, (5, 5), 0)
 
-    lines = cv2.HoughLinesP(im, 1, math.pi / 180.0, 30, np.array([]), 80, 20)
+    # thresh = cv2.adaptiveThreshold(blur, 255, 1, 1, 3, 2)
+    # cv2.imshow('after adaptive threshold', thresh)
+    # cv2.waitKey(0)
+    #Reduce noise
+    opening = cv2.morphologyEx(src_grey, cv2.MORPH_OPEN, kernel)
+    cv2.imshow('after opening', opening)
+    cv2.waitKey(0)
+    #Black background
+    reverted = cv2.bitwise_not(opening)
+    src1 = np.uint8(reverted)
+    #Canny edge detector
+    im = cv2.Canny(src1, 50, 200, L2gradient=True)
+    cv2.imshow('after canny', im)
+    cv2.waitKey(0)
+    #Fill the contours of the letters
+    im = cv2.morphologyEx(im, cv2.MORPH_CLOSE, kernel)
+    cv2.imshow('after closing', im)
+    cv2.waitKey(0)
+    #Detect lines
+    lines = cv2.HoughLinesP(im, 1, math.pi / 180.0, 60, np.array([]), 80, 20)
     a, b, c = lines.shape
+    #Convert to coloured to draw blue(currently) lines
+    im1 = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+    #Draw the lines
     for i in range(a):
-        cv2.line(im1, (lines[i][0][0], lines[i][0][1]), (lines[i][0][2], lines[i][0][3]), (255, 0, 0), 2, cv2.LINE_AA)
-    #
+        cv2.line(im1, (lines[i][0][0], lines[i][0][1]), (lines[i][0][2], lines[i][0][3]), (255, 0, 0), 4, cv2.LINE_AA)
+
     cv2.imshow("detected lines", im1)
     cv2.waitKey(0)
-
+    #Convert back to gray
     im2 = cv2.cvtColor(im1, cv2.COLOR_RGB2GRAY)
-
+    #Detect contours of the lines
     _, contours, hierarchy = cv2.findContours(im2, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
+    #Draw the contours (thin gray)
     cv2.drawContours(im2, contours, -1, (127, 0, 127), 1)
     strips = []
-    cv2.imshow("detected lines", im2)
+    cv2.imshow("detected lines&contours", im2)
     cv2.waitKey(0)
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        # cv2.rectangle(src, (x,y),(x+w,y+h),(0,255,0),1)
-        if (h>2) and (w>2):
-            strips.append(src1[y + 1:y + h - 1, x + 1:x + w - 1])
+    #Detect skewed bounding rectangles
+    len_angles = len(contours)
+    angles = [cv2.minAreaRect(contours[i])[-1] for i in range(len_angles)]
+
+    mean = np.mean(np.array(angles))
+    sd = np.std(np.array(angles))
+    final_contours = [contours[i] for i in range(len_angles) if abs(angles[i] - mean) < 2 * sd]
+    final_angles = [angles[i] for i in range(len_angles) if abs(angles[i] - mean) < 2 * sd ]
+
+    for cnt in final_contours:
+        strips.append(crop_minAreaRect(src,cnt))
 
         # if cv2.contourArea(cnt) > 220:
         #     x, y, w, h = cv2.boundingRect(cnt)
@@ -156,19 +194,19 @@ def detect_lines(src):
     # cv2.waitKey(0)
 
 
-import glob
-#images = glob.glob("image_samples_with_fonts/long/*.bmp")
-images = glob.glob("*.JPG")
 
+#images = glob.glob("image_samples_with_fonts/train/*.bmp")
+#images = glob.glob("*.JPG")
+images = glob.glob("text_skew_inputs.png")
+
+kernel = np.ones((3,3),np.uint8)
+
+#For all images
 for img in images:
     src = cv2.imread(img)
-    noized = noisy("gauss",src)
-    cv2.imshow('noize', noized)
-    cv2.waitKey(0)
-    strips = detect_lines(noized)
-
+    #Detect the lines in the image
+    strips = detect_lines(src)
+    #For all lines
     for i in range(len(strips)):
-        detect_digits(i)
-
-
-
+        #Detect the squared characters
+        detect_characters(i)
