@@ -11,12 +11,12 @@ except ImportError:
     from PIL import ImageOps
 
 
-# import glob
-# fonts = glob.glob("fonts/*.ttf")
-fonts = ['fonts\\Action Man Bold.ttf']
+import glob
+fonts = glob.glob("fonts/train/*.ttf")
+#fonts = ['fonts\\Action Man Bold.ttf']
 text_to_show = "Lorem Ipsum is simply dummy text \n of the printing and typesetting industry.\n Lorem Ipsum has been the industry's \n standard dummy text ever since the 1500s,\n when an unknown printer took a galley\n  of type and scrambled it to make a type \n specimen book. It has survived not only five centuries, \n but also the leap into electronic typesetting,\n remaining essentially unchanged. \n It was popularised in the 1960s with the release of \n Letraset sheets containing Lorem Ipsum passages,\n and more recently with desktop publishing software like \n Aldus PageMaker including versions of Lorem Ipsum."
 
-image = Image.open('out.jpg').convert('RGBA')
+image = Image.open('pictures/out.jpg').convert('RGBA')
 
 
 for font in fonts:
@@ -36,11 +36,7 @@ for font in fonts:
         final_transparent_image = Image.merge('RGBA', (r2, g2, b2, a))
 
         #final_transparent_image.save('image_samples_with_fonts/'+font[6:-4]+'.bmp')
-        final_transparent_image.save('image_samples_with_fonts/long/long_text.bmp')
+        final_transparent_image.save('image_samples_with_fonts/train/'+font[12:-4]+'.bmp')
 
-    else:
-        inverted_image = ImageOps.invert(image)
-        #inverted_image.save('image_samples_with_fonts/'+font[6:-4]+'.bmp')
-        inverted_image.save('image_samples_with_fonts/long/long_text.bmp')
 
 
